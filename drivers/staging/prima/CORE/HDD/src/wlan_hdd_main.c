@@ -153,6 +153,18 @@ static char *country_code;
 static int   enable_11d = -1;
 static int   enable_dfs_chan_scan = -1;
 
+#define BUF_LEN_SAR 10
+static char  sar_sta_buffer[BUF_LEN_SAR];
+static struct kparam_string sar_sta = {
+   .string = sar_sta_buffer,
+   .maxlen = BUF_LEN_SAR,
+};
+static char  sar_mhs_buffer[BUF_LEN_SAR];
+static struct kparam_string sar_mhs = {
+   .string = sar_mhs_buffer,
+   .maxlen = BUF_LEN_SAR,
+};
+
 #ifndef MODULE
 static int wlan_hdd_inited;
 #endif
@@ -8579,8 +8591,13 @@ VOS_STATUS hdd_request_firmware(char *pfileName,v_VOID_t *pCtx,v_VOID_t **ppfw_d
        }
    }
    else if(!strcmp(WLAN_NV_FILE, pfileName)) {
-
-       status = request_firmware(&pHddCtx->nv, pfileName, pHddCtx->parent_dev);
+        char sysfs_fname[50];
+        if (wcnss_get_wlan_nv_name(sysfs_fname) != 0) {
+            hddLog(VOS_TRACE_LEVEL_INFO, "%s: wcnss_get_wlan_nv_name returned non zero", __func__);
+            memcpy(sysfs_fname, WLAN_NV_FILE, sizeof(WLAN_NV_FILE));
+        }
+        hddLog(VOS_TRACE_LEVEL_INFO, "%s: sysfs_name is: %s",  __func__, sysfs_fname);
+        status = request_firmware(&pHddCtx->nv, sysfs_fname, pHddCtx->parent_dev);
 
        if(status || !pHddCtx->nv || !pHddCtx->nv->data) {
            hddLog(VOS_TRACE_LEVEL_FATAL, "%s: nv %s download failed",
@@ -13128,6 +13145,13 @@ static int hdd_generate_iface_mac_addr_auto(hdd_context_t *pHddCtx,
    int i;
    unsigned int serialno;
    serialno = wcnss_get_serial_number();
+
+   /* BEGIN Motorola, gambugge, IKSWO-55806: Update OUI for WiFi fallback MAC address */
+   /* Motorola OUI */
+   mac_addr.bytes[0] = 0xF0;
+   mac_addr.bytes[1] = 0xD7;
+   mac_addr.bytes[2] = 0xAA;
+   /* END IKSWO-55806 */
 
    if (0 != serialno)
    {
@@ -18297,6 +18321,12 @@ bool hdd_is_cli_iface_up(hdd_context_t *hdd_ctx)
 	return false;
 }
 
+static int sar_changed_handler(const char *kmessage,
+                                  const struct kernel_param *kp)
+{
+   return param_set_copystring(kmessage, kp);
+}
+
 //Register the module init/exit functions
 module_init(hdd_module_init);
 module_exit(hdd_module_exit);
@@ -18312,6 +18342,11 @@ static const struct kernel_param_ops con_mode_ops = {
 
 static const struct kernel_param_ops fwpath_ops = {
 	.set = fwpath_changed_handler,
+	.get = param_get_string,
+};
+
+static const struct kernel_param_ops sar_ops = {
+	.set = sar_changed_handler,
 	.get = param_get_string,
 };
 
@@ -18333,3 +18368,10 @@ module_param(enable_11d, int,
 
 module_param(country_code, charp,
              S_IRUSR | S_IRGRP | S_IROTH);
+
+module_param_cb(sar_sta, &sar_ops, &sar_sta,
+                    S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+
+module_param_cb(sar_mhs, &sar_ops, &sar_mhs,
+                    S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+

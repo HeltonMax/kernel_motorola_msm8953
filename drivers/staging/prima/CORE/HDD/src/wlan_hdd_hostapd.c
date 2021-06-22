@@ -2516,15 +2516,35 @@ static __iw_softap_setparam(struct net_device *dev,
     hdd_adapter_t *pHostapdAdapter = (netdev_priv(dev));
     tHalHandle hHal;
     hdd_context_t *pHddCtx = NULL;
-    int *value = (int *)extra;
-    int sub_cmd = value[0];
-    int set_value = value[1];
+    //BEGIN MOT IKSWO-9634, gambugge, Use copy_from_user to get user space data
+    uint8_t *mot_value;
+    int sub_cmd;
+    int set_value;
+    //END IKSWO-9634
     eHalStatus status;
     int ret = 0; /* success */
     int enable_pattrn_byte_match, enable_magic_pkt;
     v_CONTEXT_t pVosContext;
 
     ENTER();
+
+    //BEGIN MOT IKSWO-9634, gambugge, Use copy_from_user to get user space data
+    mot_value = (uint8_t*)kmalloc(wrqu->data.length+1, GFP_KERNEL);
+
+    if (NULL == mot_value)
+        return -ENOMEM;
+
+    if(copy_from_user((uint8_t *)mot_value, (uint8_t *)(wrqu->data.pointer), wrqu->data.length)) {
+        VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
+                    "%s -- copy from user -- data pointer failed! bailing", __func__);
+        kfree(mot_value);
+        return -EFAULT;
+    }
+
+    sub_cmd = (int )(*(mot_value + 0));
+    set_value = (int)(*(mot_value + 1));
+    kfree(mot_value);
+    //END IKSWO-9634
 
     if (NULL == pHostapdAdapter)
     {
@@ -3987,6 +4007,7 @@ int __iw_softap_get_channel_list(struct net_device *dev,
     tpChannelListInfo channel_list = (tpChannelListInfo) extra;
     eCsrBand curBand = eCSR_BAND_ALL;
     hdd_context_t *pHddCtx;
+    tpAniSirGlobal pMac; //IKSWO-79967
     int ret = 0;
 
     ENTER();
@@ -4016,6 +4037,7 @@ int __iw_softap_get_channel_list(struct net_device *dev,
         hddLog(LOGE,FL("not able get the current frequency band"));
         return -EIO;
     }
+    pMac = PMAC_STRUCT( hHal ); //IKSWO-79967
     wrqu->data.length = sizeof(tChannelListInfo);
     ENTER();
 
@@ -4052,8 +4074,10 @@ int __iw_softap_get_channel_list(struct net_device *dev,
         hddLog(LOGE,FL("Failed to get Domain ID, %d"),domainIdCurrentSoftap);
         return -EIO;
     }
-
-    if(REGDOMAIN_FCC == domainIdCurrentSoftap &&
+    //BEGIN IKSWO-79967, check if current country need disable MHS 5G Band1
+    if( (VOS_TRUE == vos_IsDisableMhsBand1CountryCode(pMac->scan.countryCodeCurrent) ||
+             REGDOMAIN_FCC == domainIdCurrentSoftap) &&
+    //END IKSWO-79967
              pHddCtx->cfg_ini->gEnableStrictRegulatoryForFCC )
     {
         for(i = 0; i < temp_num_channels; i++)
